@@ -1,0 +1,28 @@
+[package]
+name = "zinx-rs"
+version = "0.1.0"
+authors = ["kingeasternsun <kingeasternsun@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "cli"
+path = "src/bin/cli.rs"
+
+[[bin]]
+name = "server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "server-async"
+path = "src/bin/server-async.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1.13"
+tracing-futures = { version = "0.2.3" }
+tracing-subscriber = "0.2.2"
+bytes = "1"
+serde = { version = "1.0.104", features = ["derive"] }
+serde_json = "1.0.48"
