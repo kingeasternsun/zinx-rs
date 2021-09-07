@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 use crate::ziface::iserver::Iserver;
 use std::io::{Read, Write};
 use std::time;
@@ -27,7 +28,10 @@ impl Server {
 
 impl Iserver for Server {
     fn Start(&mut self) -> std::io::Result<()> {
-        println!("server start listenner {:?} {:?} ", self.IP, self.Port);
+        println!(
+            "server {} start listenner {} {} {:?} ",
+            self.Name, self.IPVersion, self.IP, self.Port
+        );
         let listener = TcpListener::bind(format!("{}:{}", self.IP, self.Port))?;
         // 已经监听成功
         // has listen suc

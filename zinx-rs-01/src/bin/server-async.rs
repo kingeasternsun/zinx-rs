@@ -7,5 +7,6 @@ async fn main() {
         String::from("127.0.0.1"),
         9090,
     );
-    ser.Serve().await
+    ser.Serve().await;
+    ser.Stop().await
 }

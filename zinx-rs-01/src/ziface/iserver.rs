@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 pub trait Iserver {
     //  启动服务器的方法
     fn Start(&mut self) -> std::io::Result<()>;

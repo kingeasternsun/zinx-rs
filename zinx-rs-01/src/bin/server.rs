@@ -10,6 +10,6 @@ pub fn main() -> Result<()> {
         9090,
     );
     ser.Serve();
-
+    ser.Stop();
     Ok(())
 }
