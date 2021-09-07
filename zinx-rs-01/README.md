@@ -23,7 +23,7 @@ cargo run --bin=server
 cargo run --bin=server-async
 ```
 
-启动http请求客户端
+启动 tcp 请求客户端
 ```shell
 cargo run --bin=cli
 ```
