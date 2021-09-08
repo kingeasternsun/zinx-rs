@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 use crossbeam::channel;
-// use crossbeam_channel::select;
+use crossbeam_channel::select;
 use std::io::Read;
 // use std::io::Write;
 use std::net::Shutdown;
@@ -8,8 +8,7 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::sync::Mutex;
-// use std::thread;
-
+use std::thread;
 /// connection
 ///
 /// 1. 注意要 use std::io::Read;std::io::Write 这两个trait
@@ -32,8 +31,11 @@ pub struct Connection {
     // 用来通知当前连接已经退出或停止
     exit_buff_chan: channel::Sender<bool>,
     receiver: channel::Receiver<bool>,
-    handler_api: Arc<dyn Fn(& mut TcpStream, &[u8], usize) -> std::io::Result<usize>>,
+    handler_api: HandlerFn,
 }
+
+type HandlerFn =
+    Arc<dyn Fn(&mut TcpStream, &[u8], usize) -> std::io::Result<usize> + Send + Sync + 'static>;
 
 impl Connection {
     pub fn new(
@@ -41,7 +43,7 @@ impl Connection {
         socket_addr: SocketAddr,
         conn_id: u32,
         // sender: &channel::Sender<bool>,
-        f: Arc<dyn Fn(& mut TcpStream, &[u8], usize) -> std::io::Result<usize>>,
+        f: HandlerFn,
         //,
     ) -> Self {
         let (s, r) = channel::unbounded();
@@ -63,9 +65,13 @@ impl Connection {
                 // !!! note if rev Ok(0) ,should break
                 Ok(n) if n == 0 => break,
                 Ok(n) => {
-                    println!("{:?} recv {}",self.conn_id, String::from_utf8(buf.clone()).unwrap());
+                    println!(
+                        "{:?} recv {}",
+                        self.conn_id,
+                        String::from_utf8(buf.clone()).unwrap()
+                    );
                     // match self.conn.write(&buf[..n]) {
-                    match (self.handler_api)(& mut self.conn, &buf[..], n) {
+                    match (self.handler_api)(&mut self.conn, &buf[..], n) {
                         Ok(n) => println!("{:?} write back{}", self.conn_id, n),
                         Err(_) => break,
                     }
@@ -83,16 +89,18 @@ impl Connection {
     // 启动连接，让当前连接开始工作
     pub fn start(&mut self) {
         println!("{:?} start", self.conn_id);
-        // let r1 = self.receiver.clone();
+        let r1 = self.receiver.clone();
+
+        thread::spawn(move || {
+            select! {
+                recv(r1)->msg => {
+                    println!("close {}",msg.unwrap());
+                    return
+                } ,
+            }
+        });
 
         self.start_read();
-
-        // select! {
-        //     recv(r1)->msg => {
-        //         println!("close {}",msg.unwrap());
-        //         return
-        //     } ,
-        // }
     }
 
     pub fn stop(&mut self) {
@@ -103,11 +111,14 @@ impl Connection {
 
         //TODO 如果用户注册了改链接的关闭回调业务，那么在此刻应该显示调用
         *close = true;
-        self.conn.shutdown(Shutdown::Both).unwrap();
+        match self.conn.shutdown(Shutdown::Both) {
+            Ok(_) => {}
+            Err(err) => println!("{}", err),
+        }
 
         // 通知从 tcp stream读数据的业务关闭
         self.exit_buff_chan.send(true).unwrap();
-        println!("[STOP]");
+        println!("[STOP] {:?}", self.conn_id);
     }
 
     //从当前连接获取原始的tcp stream

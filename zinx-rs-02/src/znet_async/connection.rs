@@ -4,12 +4,11 @@ use crossbeam::channel;
 use tokio::io::AsyncReadExt;
 
 // use std::net::Shutdown;
-use tokio::net::TcpStream;
-use std::sync::Arc;
-use std::sync::Mutex;
-use std::net::SocketAddr;
-use tokio::io::AsyncWriteExt;
 use bytes::BytesMut;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 
 /// connection
 ///
@@ -29,7 +28,8 @@ pub struct Connection {
     // 用来通知当前连接已经退出或停止
     exit_buff_chan: channel::Sender<bool>,
     receiver: channel::Receiver<bool>,
-    handler_api: Arc<dyn Fn(& mut TcpStream, &mut[u8], usize) -> std::io::Result<usize> + Send + Sync>,
+    handler_api:
+        Arc<dyn Fn(&mut TcpStream, &mut [u8], usize) -> std::io::Result<usize> + Send + Sync>,
 }
 
 impl Connection {
@@ -38,7 +38,7 @@ impl Connection {
         socket_addr: SocketAddr,
         conn_id: u32,
         // sender: &channel::Sender<bool>,
-        f: Arc<dyn Fn(& mut TcpStream, &mut[u8], usize) -> std::io::Result<usize> + Send + Sync>,
+        f: Arc<dyn Fn(&mut TcpStream, &mut [u8], usize) -> std::io::Result<usize> + Send + Sync>,
         //,
     ) -> Self {
         let (s, r) = channel::unbounded();
@@ -60,8 +60,12 @@ impl Connection {
                 // !!! note if rev Ok(0) ,should break
                 Ok(n) if n == 0 => break,
                 Ok(n) => {
-                    println!("{:?} recv {}",self.conn_id, String::from_utf8_lossy(&buf[..]));
-                    let _ = (self.handler_api)(& mut self.conn, & mut buf[..], n);
+                    println!(
+                        "{:?} recv {}",
+                        self.conn_id,
+                        String::from_utf8_lossy(&buf[..])
+                    );
+                    let _ = (self.handler_api)(&mut self.conn, &mut buf[..], n);
                     match self.conn.write(&buf[..n]).await {
                         Ok(n) => println!("{:?} write back{}", self.conn_id, n),
                         Err(_) => break,
@@ -98,7 +102,7 @@ impl Connection {
 
         // //TODO 如果用户注册了改链接的关闭回调业务，那么在此刻应该显示调用
         // *close = true;
-      
+
         self.conn.shutdown().await.unwrap();
 
         // 通知从 tcp stream读数据的业务关闭

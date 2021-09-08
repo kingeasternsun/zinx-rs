@@ -1,7 +1,7 @@
 #![allow(non_snake_case)]
 use crate::ziface::iserver::Iserver;
 use crate::znet::connection::Connection;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::sync::Arc;
 use std::time;
 use std::{net::TcpListener, net::TcpStream, thread};
@@ -9,7 +9,7 @@ use std::{net::TcpListener, net::TcpStream, thread};
 /// Gets a handle to the thread that invokes it.
 ///
 /// # Examples
-//  下面这种启动方式会引起报错 
+//  下面这种启动方式会引起报错
 //  error[E0277]: `(dyn for<'r, 's> Fn(&'r std::net::TcpStream, &'s [u8], usize) -> std::result::Result<usize, std::io::Error> + 'static)` cannot be sent between threads safely
 //     --> src/znet/server.rs:55:25
 //      |
@@ -23,7 +23,6 @@ use std::{net::TcpListener, net::TcpStream, thread};
 ///     Arc::new(callbacke_to_client),
 /// thread::spaw(move || conn.start());
 ///
-
 
 pub struct Server {
     // 服务器名称
@@ -49,7 +48,10 @@ impl Server {
 
 impl Iserver for Server {
     fn Start(&mut self) -> std::io::Result<()> {
-        println!("server start listenner {:?} {:?} ", self.IP, self.Port);
+        println!(
+            "server {} start listenner {} {} {:?} ",
+            self.Name, self.IPVersion, self.IP, self.Port
+        );
         let listener = TcpListener::bind(format!("{}:{}", self.IP, self.Port))?;
         // 已经监听成功
         // has listen suc
@@ -65,15 +67,13 @@ impl Iserver for Server {
                         // todo: set the max connection ,if exceed the threashold, close this connection
                         // todo: there should be one handler binded to this conn
                         // just make a echo server
-
-                        /// ⚠️ 注意这里 ，connection的创建要放在spawn里面，不然报错误 callbacke_to_client cannot be sent between threads safely
+                        let mut conn = Connection::new(
+                            stream,
+                            socket_addr,
+                            conn_id,
+                            Arc::new(callbacke_to_client),
+                        );
                         thread::spawn(move || {
-                            let mut conn = Connection::new(
-                                stream,
-                                socket_addr,
-                                conn_id,
-                                Arc::new(callbacke_to_client),
-                            );
                             conn.start();
                         });
 
@@ -103,13 +103,9 @@ impl Iserver for Server {
     }
 }
 
-fn callbacke_to_client(stream: & mut TcpStream, data: &[u8], n: usize) -> std::io::Result<usize> {
+fn callbacke_to_client(stream: &mut TcpStream, data: &[u8], n: usize) -> std::io::Result<usize> {
     stream.write(&data[..n])
 }
-
-
-
-
 
 /*
 
