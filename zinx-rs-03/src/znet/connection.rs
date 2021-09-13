@@ -4,6 +4,8 @@ use crossbeam::scope;
 use crossbeam_channel::select;
 use std::io::Read;
 // use std::io::Write;
+use crate::util::ConnID;
+use crate::ziface::Iconnection;
 use std::net::Shutdown;
 use std::net::SocketAddr;
 use std::net::TcpStream;
@@ -17,8 +19,6 @@ use std::thread;
 /// 3. handler_api Box<dyn ..>
 /// 4. 调用handler_api 使用的时候要 把self.handler_api 用括号包裹着 (self.handler_api)(&self.conn,&buf[..],n)
 
-#[derive(Debug, Clone, Copy)]
-pub struct ConnID(u32);
 pub struct Connection {
     // 当前连接的tcpstream
     conn: TcpStream,
@@ -50,7 +50,7 @@ impl Connection {
         Connection {
             conn: stream,
             socket_addr: socket_addr,
-            conn_id: ConnID(conn_id),
+            conn_id: ConnID::new(conn_id),
             is_closed: Arc::new(Mutex::new(false)),
             exit_buff_chan: s,
             receiver: r,
@@ -189,7 +189,7 @@ impl ConnectionSync {
         ConnectionSync {
             conn: Arc::new(Mutex::new(stream)),
             socket_addr: socket_addr,
-            conn_id: ConnID(conn_id),
+            conn_id: ConnID::new(conn_id),
             is_closed: Arc::new(Mutex::new(false)),
             exit_buff_chan: s,
             receiver: r,
@@ -231,25 +231,6 @@ impl ConnectionSync {
         self.stop();
     }
 
-    // 启动连接，让当前连接开始工作
-    pub fn start(self: &Arc<Self>) {
-        println!("{:?} start", self.conn_id);
-
-        let c = Arc::clone(&self);
-        thread::spawn(move || {
-            c.start_read();
-        });
-
-        let r1 = self.receiver.clone();
-
-        select! {
-            recv(r1)->msg => {
-                println!("close {}",msg.unwrap());
-                return
-            } ,
-        }
-    }
-
     // 利用crossbeam 来 spawn 调用自身的其他方法
     pub fn start_scope(&self) {
         println!("{:?} start", self.conn_id);
@@ -269,8 +250,29 @@ impl ConnectionSync {
             } ,
         }
     }
+}
 
-    pub fn stop(&self) {
+impl Iconnection for ConnectionSync {
+    // 启动连接，让当前连接开始工作
+    fn start(self: &Arc<Self>) {
+        println!("{:?} start", self.conn_id);
+
+        let c = Arc::clone(&self);
+        thread::spawn(move || {
+            c.start_read();
+        });
+
+        let r1 = self.receiver.clone();
+
+        select! {
+            recv(r1)->msg => {
+                println!("close {}",msg.unwrap());
+                return
+            } ,
+        }
+    }
+
+    fn stop(&self) {
         let mut close = self.is_closed.lock().unwrap();
         if close.eq(&true) {
             return;
@@ -289,17 +291,17 @@ impl ConnectionSync {
     }
 
     //从当前连接获取原始的tcp stream
-    pub fn get_tcp_stream(&self) -> Arc<Mutex<TcpStream>> {
+    fn get_tcp_stream(&self) -> Arc<Mutex<TcpStream>> {
         self.conn.clone()
     }
 
     // 获取当前连接ID
-    pub fn get_conn_id(&self) -> ConnID {
+    fn get_conn_id(&self) -> ConnID {
         self.conn_id
     }
 
     // 获取远程客户端地址信息
-    pub fn remote_addr(&self) -> SocketAddr {
+    fn remote_addr(&self) -> SocketAddr {
         self.socket_addr.clone()
     }
 }

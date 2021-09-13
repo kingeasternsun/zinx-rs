@@ -1,13 +1,13 @@
 #![allow(non_snake_case, dead_code)]
 #![feature(async_closure)]
+
+// use bytes::BytesMut;
 use crate::znet_async::connection::ConnectionSync;
 use std::sync::Arc;
-use bytes::BytesMut;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
-
 pub struct Server {
     // 服务器名称
     Name: String,
@@ -80,7 +80,7 @@ fn callbacke_to_client(
 
 fn callbacke_to_client_sync(
     stream: Arc<Mutex<TcpStream>>,
-    data: & mut [u8],
+    data: &mut [u8],
     n: usize,
 ) -> std::io::Result<usize> {
     data.reverse();
@@ -94,7 +94,7 @@ fn callbacke_to_client_sync(
 
 fn callbacke_to_client_async(
     stream: Arc<Mutex<TcpStream>>,
-    data: & 'static [u8],
+    data: &'static [u8],
     n: usize,
 ) -> tokio::task::JoinHandle<std::io::Result<usize>> {
     tokio::spawn(async move {

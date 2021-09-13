@@ -1,3 +1,4 @@
+Zinx-V0.2-简单的连接封装与业务绑定 https://www.kancloud.cn/aceld/zinx/1960214
 
 # 同步实现
 
@@ -71,6 +72,11 @@ error[E0277]: `(dyn for<'r, 's> Fn(&'r mut std::net::TcpStream, &'s [u8], usize)
 ```rust
 type HandlerFn = Arc<dyn Fn(&mut TcpStream, &[u8], usize) -> std::io::Result<usize> + Send + Sync>;
 ```
+## spawn method
+
+如果要在method中spawn 其他的method，两种方案
+1. 使用 crossbeam::scope ，参见Connection::start_scope()
+2. 当前对象要用Arc<Mutex> 封装，参见 https://users.rust-lang.org/t/how-to-use-self-while-spawning-a-thread-from-method/8282
 
 # 异步实现
 由于 tikio.net.TcpStream 执行写入也是 async，只能在async中调用，所以写入操作无法作为回调函数的一部分

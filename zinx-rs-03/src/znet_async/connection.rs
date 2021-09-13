@@ -1,21 +1,20 @@
 #![allow(non_snake_case, dead_code)]
 use crossbeam::channel;
-use crossbeam::scope;
 use crossbeam_channel::select;
-use std::io::Read;
-// use std::io::Write;
-use std::net::Shutdown;
+use tokio::io::AsyncReadExt;
+
+// use std::net::Shutdown;
+use bytes::Buf;
+use bytes::BufMut;
+use bytes::BytesMut;
 use std::net::SocketAddr;
-use std::net::TcpStream;
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::thread;
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+
 /// connection
 ///
-/// 1. 注意要 use std::io::Read;std::io::Write 这两个trait
-/// 2. Connection中的conn 使用 try_clone 进行复制
-/// 3. handler_api Box<dyn ..>
-/// 4. 调用handler_api 使用的时候要 把self.handler_api 用括号包裹着 (self.handler_api)(&self.conn,&buf[..],n)
 
 #[derive(Debug, Clone, Copy)]
 pub struct ConnID(u32);
@@ -35,7 +34,8 @@ pub struct Connection {
     handler_api: HandlerFn,
 }
 
-type HandlerFn = Arc<dyn Fn(&mut TcpStream, &[u8], usize) -> std::io::Result<usize> + Send + Sync>;
+type HandlerFn =
+    Arc<dyn Fn(&mut TcpStream, &mut [u8], usize) -> std::io::Result<usize> + Send + Sync>;
 
 impl Connection {
     pub fn new(
@@ -58,20 +58,20 @@ impl Connection {
         }
     }
 
-    fn start_read(&mut self) {
+    async fn start_read(&mut self) {
         loop {
-            let mut buf = vec![0; 256];
-            match self.conn.read(&mut buf) {
+            let mut buf = BytesMut::with_capacity(256);
+            match self.conn.read_buf(&mut buf).await {
                 // !!! note if rev Ok(0) ,should break
                 Ok(n) if n == 0 => break,
                 Ok(n) => {
                     println!(
                         "{:?} recv {}",
                         self.conn_id,
-                        String::from_utf8(buf.clone()).unwrap()
+                        String::from_utf8_lossy(&buf[..])
                     );
-                    // match self.conn.write(&buf[..n]) {
-                    match (self.handler_api)(&mut self.conn, &buf[..], n) {
+                    let _ = (self.handler_api)(&mut self.conn, &mut buf[..], n);
+                    match self.conn.write(&buf[..n]).await {
                         Ok(n) => println!("{:?} write back{}", self.conn_id, n),
                         Err(_) => break,
                     }
@@ -83,68 +83,49 @@ impl Connection {
             }
         }
 
-        self.stop();
+        self.stop().await;
     }
 
     // 启动连接，让当前连接开始工作
-    pub fn start(&mut self) {
+    pub async fn start(&mut self) {
         println!("{:?} start", self.conn_id);
-        let r1 = self.receiver.clone();
-
-        thread::spawn(move || {
-            select! {
-                recv(r1)->msg => {
-                    println!("close {}",msg.unwrap());
-                    return
-                } ,
-            }
-        });
-
-        self.start_read();
+        // need fix
+        // let start_read = self.start_read();
+        // let mut r1 = self.receiver.clone();
+        // let wait_close = self.wait_close();
+        self.start_read().await;
     }
 
-    // 利用crossbeam 来 spawn 调用自身的其他方法
-    pub fn start_scope(&mut self) {
-        println!("{:?} start", self.conn_id);
+    async fn wait_close(&self) {
         let r1 = self.receiver.clone();
-
-        scope(|scope| {
-            scope.spawn(|_| {
-                self.start_read();
-            });
-        })
-        .unwrap();
-
         select! {
             recv(r1)->msg => {
                 println!("close {}",msg.unwrap());
                 return
             } ,
-        }
+        };
     }
 
-    pub fn stop(&self) {
-        let mut close = self.is_closed.lock().unwrap();
+    pub async fn stop(&mut self) {
+        let mut close = self.is_closed.lock().await;
         if close.eq(&true) {
             return;
         }
 
         //TODO 如果用户注册了改链接的关闭回调业务，那么在此刻应该显示调用
         *close = true;
-        match self.conn.shutdown(Shutdown::Both) {
-            Ok(_) => {}
-            Err(err) => println!("{}", err),
-        }
+
+        self.conn.shutdown().await.unwrap();
 
         // 通知从 tcp stream读数据的业务关闭
         self.exit_buff_chan.send(true).unwrap();
-        println!("[STOP] {:?}", self.conn_id);
+        println!("{}", "[STOP]");
     }
 
     //从当前连接获取原始的tcp stream
-    pub fn get_tcp_stream(&self) -> TcpStream {
-        self.conn.try_clone().unwrap()
-    }
+    // pub fn get_tcp_stream(&self) -> TcpStream {
+    //     self.conn.unwrap()
+    // }
 
     // 获取当前连接ID
     pub fn get_conn_id(&self) -> ConnID {
@@ -153,12 +134,14 @@ impl Connection {
 
     // 获取远程客户端地址信息
     pub fn remote_addr(&self) -> SocketAddr {
-        self.socket_addr.clone()
+        self.socket_addr
     }
 }
 
 pub struct ConnectionSync {
     // 当前连接的tcpstream
+    // read_half:tokio::io::ReadHalf<TcpStream>,
+    // write_half:Arc<Mutex<tokio::io::WriteHalf<TcpStream>>>,
     conn: Arc<Mutex<TcpStream>>,
     // 对端地址
     socket_addr: SocketAddr,
@@ -174,7 +157,7 @@ pub struct ConnectionSync {
 }
 
 type HandlerFnSync =
-    Arc<dyn Fn(Arc<Mutex<TcpStream>>, &[u8], usize) -> std::io::Result<usize> + Send + Sync>;
+    Arc<dyn Fn(Arc<Mutex<TcpStream>>, &mut [u8], usize) -> std::io::Result<usize> + Send + Sync>;
 
 impl ConnectionSync {
     pub fn new(
@@ -186,7 +169,10 @@ impl ConnectionSync {
         //,
     ) -> Self {
         let (s, r) = channel::unbounded();
+        // let (rt,wt) = tokio::io::split(stream);
         ConnectionSync {
+            // read_half:rt,
+            // write_half:Arc::new(Mutex::new(wt)),
             conn: Arc::new(Mutex::new(stream)),
             socket_addr: socket_addr,
             conn_id: ConnID(conn_id),
@@ -197,29 +183,40 @@ impl ConnectionSync {
         }
     }
 
-    fn start_read(&self) {
+    // 用于辅助 start_read
+    async fn read_data<B: BufMut>(&self, buf: &mut B) -> std::io::Result<usize> {
+        let mut s = self.conn.lock().await;
+        s.read_buf(buf).await
+    }
+
+    // 用于辅助 start_read
+    async fn write_data<B: Buf>(&self, buf: &mut B) -> std::io::Result<usize> {
+        let mut s = self.conn.lock().await;
+        s.write_buf(buf).await
+    }
+
+    async fn start_read(&self) {
         loop {
-            let mut buf = vec![0; 256];
-            let res;
-            {
-                let mut conn = self.conn.lock().unwrap();
-                res = conn.read(&mut buf);
-                // release lock
-            }
-            match res {
+            let mut buf = BytesMut::with_capacity(256);
+            match self.read_data(&mut buf).await {
                 // !!! note if rev Ok(0) ,should break
                 Ok(n) if n == 0 => break,
                 Ok(n) => {
                     println!(
                         "{:?} recv {}",
                         self.conn_id,
-                        String::from_utf8(buf.clone()).unwrap()
+                        String::from_utf8_lossy(&buf[..])
                     );
-                    // match self.conn.write(&buf[..n]) {
-                    match (self.handler_api)(self.conn.clone(), &buf[..], n) {
-                        Ok(n) => println!("{:?} write back {} bytes", self.conn_id, n),
+
+                    let _ = (self.handler_api)(self.conn.clone(), &mut buf[..], n);
+
+                    match self.write_data(&mut buf).await {
+                        Ok(n) => println!(
+                            "{:?} write back {} to {}",
+                            self.conn_id, n, self.socket_addr
+                        ),
                         Err(_) => break,
-                    }
+                    };
                 }
                 Err(err) => {
                     println!("{:?}{}", self.conn_id, err);
@@ -228,60 +225,49 @@ impl ConnectionSync {
             }
         }
 
-        self.stop();
+        self.stop().await;
     }
 
     // 启动连接，让当前连接开始工作
-    pub fn start(self: &Arc<Self>) {
+    pub async fn start(self: &Arc<Self>) {
         println!("{:?} start", self.conn_id);
 
-        let c = Arc::clone(&self);
-        thread::spawn(move || {
-            c.start_read();
-        });
+        let conn = Arc::clone(&self);
 
+        // need fix 下面的代码只会接受一次就卡住不接受了 需要定位
+        // let r = self.start_read();
+        // let t = self.wait_close();
+        // join!(r,t);
+
+        tokio::spawn(async move { conn.wait_close().await });
+        self.start_read().await;
+    }
+
+    async fn wait_close(&self) {
         let r1 = self.receiver.clone();
-
         select! {
             recv(r1)->msg => {
                 println!("close {}",msg.unwrap());
                 return
             } ,
-        }
+        };
     }
 
-    // 利用crossbeam 来 spawn 调用自身的其他方法
-    pub fn start_scope(&self) {
-        println!("{:?} start", self.conn_id);
-        let r1 = self.receiver.clone();
-
-        scope(|s| {
-            s.spawn(|_| {
-                self.start_read();
-            });
-        })
-        .unwrap();
-
-        select! {
-            recv(r1)->msg => {
-                println!("close {}",msg.unwrap());
-                return
-            } ,
-        }
+    async fn stop_conn(&self) {
+        let mut s = self.conn.lock().await;
+        s.shutdown().await.unwrap();
     }
 
-    pub fn stop(&self) {
-        let mut close = self.is_closed.lock().unwrap();
+    pub async fn stop(&self) {
+        let mut close = self.is_closed.lock().await;
         if close.eq(&true) {
             return;
         }
 
         //TODO 如果用户注册了改链接的关闭回调业务，那么在此刻应该显示调用
         *close = true;
-        match self.conn.lock().unwrap().shutdown(Shutdown::Both) {
-            Ok(_) => {}
-            Err(err) => println!("{}", err),
-        }
+
+        self.stop_conn().await;
 
         // 通知从 tcp stream读数据的业务关闭
         self.exit_buff_chan.send(true).unwrap();
@@ -300,6 +286,6 @@ impl ConnectionSync {
 
     // 获取远程客户端地址信息
     pub fn remote_addr(&self) -> SocketAddr {
-        self.socket_addr.clone()
+        self.socket_addr
     }
 }

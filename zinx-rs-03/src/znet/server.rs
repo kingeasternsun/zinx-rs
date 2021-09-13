@@ -1,13 +1,13 @@
 #![allow(non_snake_case)]
-use std::sync::Mutex;
-
-use crate::ziface::iserver::Iserver;
-use crate::znet::connection::ConnectionSync;
 use std::io::Write;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::time;
 use std::{net::TcpListener, net::TcpStream, thread};
 
+use crate::ziface::iconnection::Iconnection;
+use crate::ziface::iserver::Iserver;
+use crate::znet::connection::ConnectionSync;
 pub struct Server {
     // 服务器名称
     Name: String,
