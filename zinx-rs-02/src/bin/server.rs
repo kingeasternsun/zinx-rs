@@ -5,7 +5,7 @@ use zinx_rs::Iserver;
 
 pub fn main() -> Result<()> {
     let mut ser = Server::new(
-        String::from("name"),
+        String::from("kingeasternsun"),
         String::from("ipv4"),
         String::from("127.0.0.1"),
         9090,

@@ -1,18 +1,9 @@
 use std::sync::Arc;
 
 use crate::ziface::{IRouter, IRquest};
-use crate::znet::request::Request;
-// use crate::znet::connection::ConnectionSync;
+use crate::znet_async::request::Request;
 
 pub struct PingRouter;
-
-// TODO 等声明周期完全熟悉后再考虑这个方法
-// impl IRouter for PingRouter {
-//     type R = Request<'a>;
-//     fn pre_handler(&self, request: Request<'a>) {}
-//     fn handler(&self, request: Request<'a>) {}
-//     fn post_hander(&self, request: Request<'a>) {}
-// }
 
 impl IRouter for PingRouter {
     type R = Request;
