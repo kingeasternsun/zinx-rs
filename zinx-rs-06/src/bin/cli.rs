@@ -10,7 +10,7 @@ use std::thread;
 use std::time::Duration;
 use zinx_rs::util::Error;
 use zinx_rs::util::Message;
-// use zinx_rs::ziface::IDataPack;
+use zinx_rs::ziface::IDataPack;
 use zinx_rs::DataPack;
 
 fn parse_message(buffer: &mut BytesMut) -> std::result::Result<Option<Message>, Error> {
@@ -64,7 +64,8 @@ fn main() -> std::io::Result<()> {
     let mut msg_id = 1;
     let mut msg = Message::new(msg_id, data);
     loop {
-        msg.SetMsgId(msg_id);
+        
+        msg.SetMsgId(msg_id%3);
         let buf = DataPack::Pack(&msg)?;
         println!("send {}", msg);
         match stream.write(&buf) {
