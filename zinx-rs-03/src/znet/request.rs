@@ -34,8 +34,9 @@ impl Request {
 }
 
 impl IRquest for Request {
-    type Conn = ConnectionSync; // 对于某个 Connection 的 Request，对应的 IRquest 只有一种比较合理
-                                // 获取请求连接信息
+    // 对于某个 Connection 上的 Request，对应的 IRquest 肯定是要关联到对应的Connection
+    type Conn = ConnectionSync; 
+    // 获取请求连接信息
     fn get_connection(&self) -> Arc<ConnectionSync> {
         Arc::clone(&self.conn)
     }

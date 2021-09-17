@@ -10,5 +10,5 @@ pub use ziface::IRouter;
 pub use ziface::Iconnection;
 pub use ziface::Iserver;
 pub mod znet;
-pub mod znet_async;
 pub use znet::Server;
+pub mod znet_async;

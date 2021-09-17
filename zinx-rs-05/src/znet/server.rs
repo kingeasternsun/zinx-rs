@@ -1,5 +1,5 @@
 #![allow(non_snake_case)]
-use std::io::Write;
+
 use std::sync::Arc;
 use std::sync::Mutex;
 // use std::time;
@@ -7,6 +7,7 @@ use std::{net::TcpListener, net::TcpStream, thread};
 
 // use tokio::sync::futures::Notified;
 
+use crate::util::*;
 use crate::ziface::iconnection::Iconnection;
 use crate::ziface::iserver::Iserver;
 use crate::znet::connection::ConnectionSync;
@@ -65,7 +66,7 @@ impl Iserver for Server {
                         stream,
                         socket_addr,
                         conn_id,
-                        Arc::new(callbacke_to_client_sync),
+                        Arc::new(reverse_msg_handler),
                         Arc::clone(self.Router.as_ref().unwrap()),
                     ));
                     thread::spawn(move || {
@@ -102,22 +103,9 @@ impl Iserver for Server {
     }
 }
 
-// fn callbacke_to_client(stream: &mut TcpStream, data: &[u8], n: usize) -> std::io::Result<usize> {
-//     stream.write(&data[..n])
-// }
+fn reverse_msg_handler(_stream: Arc<Mutex<TcpStream>>, data: &Message) -> std::io::Result<Message> {
+    let mut msg = data.clone();
+    msg.reverse();
 
-fn callbacke_to_client_sync(
-    stream: Arc<Mutex<TcpStream>>,
-    data: &[u8],
-    n: usize,
-) -> std::io::Result<usize> {
-    stream.lock().unwrap().write(&data[..n])
+    Ok(msg)
 }
-/*
-
-error[E0277]: `(dyn for<'r, 's> Fn(&'r std::net::TcpStream, &'s [u8], usize) -> std::result::Result<usize, std::io::Error> + 'static)` cannot be sent between threads safely
-   --> src/znet/server.rs:55:25
-    |
-55  |                         thread::spawn(move || {
-    |                         ^^^^^^^^^^^^^ `(dyn for<'r, 's> Fn(&'r std::net::TcpStream, &'s [u8], usize) -> std::result::Result<usize, std::io::Error> + 'static)` cannot be sent between threads safely
-*/

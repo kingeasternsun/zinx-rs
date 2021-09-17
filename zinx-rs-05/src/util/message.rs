@@ -1,4 +1,5 @@
 #![allow(non_snake_case, dead_code)]
+use std::fmt;
 #[derive(Clone, Debug)]
 pub struct Message {
     Id: u32,        //消息的ID
@@ -11,7 +12,7 @@ impl Message {
     pub fn new(id: u32, data: Vec<u8>) -> Self {
         Message {
             Id: id,
-            DataLen: 0,
+            DataLen: data.len(),
             Data: data,
         }
     }
@@ -48,5 +49,18 @@ impl Message {
 
     pub fn reverse(&mut self) {
         self.Data.reverse()
+    }
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        unsafe {
+            write!(
+                fmt,
+                "{{ {:?}  {:?} }}",
+                self.GetMsgId(),
+                String::from_utf8_unchecked(self.GetData())
+            )
+        }
     }
 }

@@ -1,7 +1,5 @@
 #![allow(non_snake_case, dead_code)]
-#![feature(async_closure)]
 
-// use bytes::BytesMut;
 use crate::util::Message;
 use crate::znet_async::connection::ConnectionSync;
 use crate::znet_async::RouterSync;

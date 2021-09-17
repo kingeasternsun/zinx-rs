@@ -60,7 +60,7 @@ impl ConnectionSync {
             // read_half:rt,
             // write_half:Arc::new(Mutex::new(wt)),
             conn: Arc::new(Mutex::new(stream)),
-            socket_addr: socket_addr,
+            socket_addr,
             conn_id: ConnID::new(conn_id),
             is_closed: Arc::new(Mutex::new(false)),
             exit_buff_chan: s,
@@ -78,26 +78,81 @@ impl ConnectionSync {
     }
 
     // 用于辅助 start_read
-    async fn write_data(&self, buf: & [u8]) -> std::io::Result<()> {
+    async fn write_data(&self, buf: &[u8]) -> std::io::Result<()> {
         let mut s = self.conn.lock().await;
         s.write_all(buf).await
     }
 
-    // 从buffer中解析 message
+    ///  从buffer中解析 message
+    /// 返回 Ok(None) 表示 buffer中数据不足
     async fn parse_message(
         self: &Arc<Self>,
-        buf: &mut BytesMut,
+        buffer: &mut BytesMut,
     ) -> std::result::Result<Option<Message>, Error> {
         use crate::util::Error::Incomplete;
-        let mut buf = Cursor::new(&buf[..]);
-        match DataPack::Unpack(&mut buf) {
-            Ok(msg) => Ok(Some(msg)),
+        let mut buf = Cursor::new(&buffer[..]);
+
+        // The first step is to check if enough data has been buffered to parse
+        // a single frame. This step is usually much faster than doing a full
+        // parse of the frame, and allows us to skip allocating data structures
+        // to hold the frame data unless we know the full frame has been
+        // received.
+        // 先判断buffer中是否有足够的数据解码message，如果不够就往buffer里面读入新数据
+        // check步骤通常比parse要快，因为check不需要完全的进行解码，对于message包含非常多的复杂字段的情况，是非常快的
+        // 如果不先进行check，那么对于数据不完整的情况，就会出现parse了一部分然后放弃，比较浪费
+        match DataPack::check(&mut buf) {
+            Ok(_) => {
+                // Reset the position to zero before passing the cursor to
+                // `Frame::parse`.
+                // 重置position归零，用于下面的Unpack操作，因为 Unpack也是基于Cursor的
+                buf.set_position(0);
+
+                // Parse the frame from the buffer. This allocates the necessary
+                // structures to represent the frame and returns the frame
+                // value.
+                //
+                // If the encoded frame representation is invalid, an error is
+                // returned. This should terminate the **current** connection
+                // but should not impact any other connected client.
+                let frame = DataPack::Unpack(&mut buf)?;
+
+                // The `check` function will have advanced the cursor until the
+                // end of the frame. Since the cursor had position set to zero
+                // before `Frame::check` was called, we obtain the length of the
+                // frame by checking the cursor position.
+                // 获取到了当前message的长度
+                // 跟 minitokio的实现不太一样，放在这里，获取的len才是message的字节流的真正长度
+                let len = buf.position() as usize;
+
+                // Discard the parsed data from the read buffer.
+                //
+                // When `advance` is called on the read buffer, all of the data
+                // up to `len` is discarded. The details of how this works is
+                // left to `BytesMut`. This is often done by moving an internal
+                // cursor, but it may be done by reallocating and copying data.
+                // message已经读取出来了，所以需要把底层的buffer的游标也移动一下
+                buffer.advance(len);
+
+                // Return the parsed frame to the caller.
+                Ok(Some(frame))
+            }
+            // There is not enough data present in the read buffer to parse a
+            // single frame. We must wait for more data to be received from the
+            // socket. Reading from the socket will be done in the statement
+            // after this `match`.
+            //
+            // We do not want to return `Err` from here as this "error" is an
+            // expected runtime condition.
             Err(Incomplete) => Ok(None),
-            Err(err) => Err(err),
+            // An error was encountered while parsing the frame. The connection
+            // is now in an invalid state. Returning `Err` from here will result
+            // in the connection being closed.
+            Err(e) => Err(e),
         }
     }
 
-    // 从 tcp stream 中解析message，如果解析成功就返回
+    /// 从 buffer 中解析message，如果解析成功就返回,数据不充足就从tcp stream中读入新数据到buffer
+    /// 返回Ok(None) 表示客户端已经完成发送，合法的关闭了
     async fn read_message(
         self: &Arc<Self>,
         buffer: &mut BytesMut,
@@ -114,19 +169,25 @@ impl ConnectionSync {
             // On success, the number of bytes is returned. `0` indicates "end
             // of stream".
             match self.read_data(buffer).await {
-                Err(err) => return Err(Error::Other(Box::new(err))),
+                Err(err) => {
+                    println!("{}", err);
+                    return Err(Error::Other(Box::new(err)));
+                }
                 Ok(0) => {
                     // The remote closed the connection. For this to be a clean
                     // shutdown, there should be no data in the read buffer. If
                     // there is, this means that the peer closed the socket while
                     // sending a frame.
                     if buffer.is_empty() {
+                        println!("READ 0");
                         return Ok(None);
                     } else {
                         return Err("connection reset by peer".into());
                     }
                 }
-                Ok(_) => {}
+                Ok(n) => {
+                    println!("REVE {}", n);
+                }
             }
         }
     }
@@ -144,19 +205,19 @@ impl ConnectionSync {
                 Ok(Some(msg)) => {
                     let request = Request::new(Arc::clone(self), msg);
 
-                    self.Router.pre_handler(request.clone());
+                    self.Router.pre_handler(& request);
 
                     let res = (self.handler_api)(self.conn.clone(), &request.data).unwrap();
 
-                    println!("{:?}", res);
+                    // println!("{}", res);
 
                     let data = DataPack::Pack(&res).unwrap();
 
-                    match self.write_data(& data).await {
-                        Ok(n) => println!(
-                            "{:?} write back  to {}",
-                            self.conn_id, self.socket_addr
-                        ),
+                    match self.write_data(&data).await {
+                        Ok(_) => {
+                            println!("{:?} write back  to {}", self.conn_id, self.socket_addr);
+                            self.Router.post_hander(& request);
+                        }
                         Err(_) => break,
                     };
                 }
@@ -193,7 +254,10 @@ impl ConnectionSync {
 
     async fn stop_conn(&self) {
         let mut s = self.conn.lock().await;
-        s.shutdown().await.unwrap();
+        match s.shutdown().await {
+            Ok(_) => {}
+            Err(err) => println!("{}", err),
+        };
     }
 
     pub async fn stop(&self) {

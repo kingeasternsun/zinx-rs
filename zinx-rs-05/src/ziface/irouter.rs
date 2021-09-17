@@ -7,7 +7,7 @@
 pub trait IRouter {
     // 关联一个 Request
     type R;
-    fn pre_handler(&self, _request: Self::R) {}
-    fn handler(&self, _request: Self::R) {}
-    fn post_hander(&self, _request: Self::R) {}
+    fn pre_handler(&self, _request: & Self::R) {}
+    fn handler(&self, _request: & Self::R) {}
+    fn post_hander(&self, _request: & Self::R) {}
 }

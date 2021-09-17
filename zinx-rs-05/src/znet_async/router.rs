@@ -1,17 +1,17 @@
 use std::sync::Arc;
 
-use crate::ziface::{IRouter, IRquest};
+use crate::ziface::IRouter;
 use crate::znet_async::request::Request;
 
 pub struct PingRouter;
 
 impl IRouter for PingRouter {
     type R = Request;
-    fn pre_handler(&self, request: Request) {
+    fn pre_handler(&self, request: & Request) {
         println!("pre {}", request.get_data());
     }
-    fn handler(&self, _request: Request) {}
-    fn post_hander(&self, request: Request) {
+    fn handler(&self, _request: & Request) {}
+    fn post_hander(&self, request: & Request) {
         println!("post {}", request.get_data());
     }
 }
