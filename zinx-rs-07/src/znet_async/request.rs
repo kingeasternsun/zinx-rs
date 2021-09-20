@@ -31,11 +31,11 @@ impl Request {
 // }
 
 impl IRquest for Request {
-    type Conn = ConnectionSync; // 对于某个 Connection 的 Request，对应的 IRquest 只有一种比较合理
-                                // 获取请求连接信息
-    fn get_connection(&self) -> Arc<Self::Conn> {
-        Arc::clone(&self.conn)
-    }
+    // type Conn = ConnectionSync; // 对于某个 Connection 的 Request，对应的 IRquest 只有一种比较合理
+    //                             // 获取请求连接信息
+    // fn get_connection(&self) -> Arc<Self::Conn> {
+    //     Arc::clone(&self.conn)
+    // }
     // 获取请求消息的数据
     fn get_data(&self) -> Message {
         self.data.clone()

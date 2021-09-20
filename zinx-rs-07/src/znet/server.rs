@@ -30,7 +30,13 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(name: String, ip_version: String, ip: String, port: u32, router: MsgHandle<Request>,) -> Self {
+    pub fn new(
+        name: String,
+        ip_version: String,
+        ip: String,
+        port: u32,
+        router: MsgHandle<Request>,
+    ) -> Self {
         Server {
             Name: name,
             IPVersion: ip_version,
@@ -71,12 +77,9 @@ impl Iserver for Server {
                         // Arc::new(reverse_msg_handler),
                         Arc::clone(&self.Router),
                     );
-                    thread::spawn( move || {
+                    thread::spawn(move || {
                         conn.start();
-
                     });
-
-                  
 
                     conn_id += 1;
                 }

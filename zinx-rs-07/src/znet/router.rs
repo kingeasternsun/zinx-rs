@@ -29,8 +29,6 @@ impl IRouter for PingRouter {
 
 pub type RouterSync = Arc<Box<dyn IRouter<R = Request> + Send + Sync>>;
 
-
-
 pub struct OneRouter;
 
 impl IRouter for OneRouter {
@@ -64,4 +62,3 @@ impl IRouter for TwoRouter {
         println!("TWO_POST {}", request.get_data());
     }
 }
-

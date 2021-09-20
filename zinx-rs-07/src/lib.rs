@@ -1,5 +1,6 @@
 pub mod err;
 pub use err::Error;
+pub use err::Result;
 pub mod util;
 pub use util::ConnID;
 pub use util::DataPack;

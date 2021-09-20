@@ -59,14 +59,12 @@ fn read_message(
 }
 
 fn main() -> std::io::Result<()> {
-
     let mut stream = TcpStream::connect("127.0.0.1:9090")?;
     let data: Vec<u8> = "hello king eastern sun".bytes().collect();
     let mut msg_id = 1;
     let mut msg = Message::new(msg_id, data);
     loop {
-        
-        msg.SetMsgId(msg_id%3);
+        msg.SetMsgId(msg_id % 3);
         let buf = DataPack::Pack(&msg)?;
         println!("send {}", msg);
         match stream.write(&buf) {

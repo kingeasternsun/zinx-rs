@@ -15,10 +15,10 @@ use std::thread;
 use crate::util::*;
 use crate::ziface::Iconnection;
 use crate::znet::Request;
-#[derive(Clone)]
+
 pub struct ConnectionSync {
     // 当前连接的tcpstream
-    conn: Arc<Mutex<TcpStream>>,
+    conn: TcpStream,
     // 对端地址
     socket_addr: SocketAddr,
     // 当前连接的ID 唯一
@@ -27,11 +27,11 @@ pub struct ConnectionSync {
     is_closed: Arc<Mutex<bool>>,
 
     // 用来通知当前连接已经退出或停止
-    exit_buff_chan: channel::Sender<bool>,
-    receiver: channel::Receiver<bool>,
+    close_sx: channel::Sender<bool>,
+    close_rx: channel::Receiver<bool>,
 
-    msg_sx:channel::Sender<Message>,
-    msg_rx:channel::Receiver<Message>,
+    msg_sx: channel::Sender<Message>,
+    msg_rx: channel::Receiver<Message>,
     // handler_api: HandlerFnSync,
     Router: Arc<MsgHandle<Request>>,
 }
@@ -52,25 +52,37 @@ impl ConnectionSync {
         let (s, r) = channel::unbounded();
         let (sx, rx) = channel::unbounded();
         ConnectionSync {
-            conn: Arc::new(Mutex::new(stream)),
+            conn: stream,
             socket_addr,
             conn_id: ConnID::new(conn_id),
             is_closed: Arc::new(Mutex::new(false)),
-            exit_buff_chan: s,
-            receiver: r,
-            msg_rx:rx,
-            msg_sx:sx,
+            close_sx: s,
+            close_rx: r,
+            msg_rx: rx,
+            msg_sx: sx,
             // handler_api: f,
             Router: router,
         }
     }
+    pub fn try_clone(&self) -> std::io::Result<ConnectionSync> {
+        let stream = self.conn.try_clone()?;
+        Ok(ConnectionSync {
+            conn: stream,
+            socket_addr: self.socket_addr.clone(),
+            conn_id: self.conn_id.clone(),
+            is_closed: self.is_closed.clone(),
+            close_rx: self.close_rx.clone(),
+            close_sx: self.close_sx.clone(),
+            msg_rx: self.msg_rx.clone(),
+            msg_sx: self.msg_sx.clone(),
+            // handler_api: f,
+            Router: Arc::clone(&self.Router),
+        })
+    }
 
     ///  从buffer中解析 message
     /// 返回 Ok(None) 表示 buffer中数据不足
-    fn parse_message(
-        &self,
-        buffer: &mut BytesMut,
-    ) -> std::result::Result<Option<Message>, Error> {
+    fn parse_message(&self, buffer: &mut BytesMut) -> std::result::Result<Option<Message>, Error> {
         use crate::util::Error::Incomplete;
         let mut buf = Cursor::new(&buffer[..]);
 
@@ -134,28 +146,27 @@ impl ConnectionSync {
     }
 
     // 用于辅助 read_message
-    fn read_data<B: BufMut>(&self, buffer: &mut B) -> std::io::Result<usize> {
+    fn read_data<B: BufMut>(&mut self, buffer: &mut B) -> std::io::Result<usize> {
         let mut buf = vec![0; 256];
 
-        let mut conn = self.conn.lock().unwrap();
-        let n = conn.read(&mut buf)?;
+        // let mut conn = self.conn.lock().unwrap();
+        let n = self.conn.read(&mut buf)?;
         buffer.put_slice(&buf[..n]);
         Ok(n)
     }
 
     // 用于辅助 start_reader
-    fn write_data(&self, buf: &[u8]) -> std::io::Result<()> {
-        println!("to lock");
-        let mut s = self.conn.try_lock().unwrap();
-        println!("write finish");
-        s.write_all(buf)
-        
+    fn write_data(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        // println!("to lock");
+        // let mut s = self.conn.try_lock().unwrap();
+        // println!("write finish");
+        self.conn.write_all(buf)
     }
 
     /// 从 buffer 中解析message，如果解析成功就返回,数据不充足就从tcp stream中读入新数据到buffer
     /// 返回Ok(None) 表示客户端已经完成发送，合法的关闭了
     fn read_message(
-        &self,
+        &mut self,
         buffer: &mut BytesMut,
     ) -> std::result::Result<Option<Message>, Error> {
         loop {
@@ -193,74 +204,58 @@ impl ConnectionSync {
         }
     }
 
-    pub fn start_reader(&self ) {
+    pub fn start_reader(&mut self) -> crate::Result<()> {
         let mut buffer = BytesMut::with_capacity(1024);
         loop {
-            match self.read_message(&mut buffer) {
-                Err(err) => {
-                    println!("{:?}{}", self.conn_id, err);
-                    break;
-                }
+            match self.read_message(&mut buffer)? {
+                None => break,
+                Some(msg) => {
+                    let request = Request::new(msg);
 
-                Ok(None) => break,
-                Ok(Some(msg)) => {
-                    let request = Request::new(Arc::new(self.clone()), msg);
-
-                    if let Some(res) = self.Router.DoMsgHandler(&request){
-  
-                        // let data = DataPack::Pack(&res.data).unwrap();
-    
-                        match self.msg_sx.send(res.data) {
-                            Ok(_) => {
-                                println!("write back  to chanel");
-                                // self.Router.post_hander(&request);
-                            }
-                            Err(_) => break,
-                        };
+                    if let Some(res) = self.Router.DoMsgHandler(&request) {
+                        self.msg_sx.send(res.data)?
                     }
-
-     
                 }
             }
         }
 
         self.stop();
+        Ok(())
     }
 
-    pub fn start_writer(&self){
-        loop{
+    pub fn start_writer(&mut self) -> crate::Result<()> {
+        loop {
+            // TODO select receiver
+             /* 
+            let msg = self.msg_rx.recv()?;
 
-            //TODO select receiver
-            if let Ok(msg) = self.msg_rx.recv(){
-                println!("rev {}",msg);
-                let data = DataPack::Pack(&msg).unwrap();
-    
-                match self.write_data(&data) {
-                    Ok(_) => {
-                        println!("WRITER {:?} write back  to {}", self.conn_id, self.socket_addr);
-                    }
-                    Err(err) => {
-                        println!("{}",err);
-                        break;
-                    },
-                };
-            }else{
-                break
+            println!("rev {}", msg);
+            let data = DataPack::Pack(&msg)?;
+
+            self.write_data(&data)?;
+            println!(
+                "WRITER {:?} write back  to {}",
+                self.conn_id, self.socket_addr
+            );
+            */
+
+            select! {
+
+                recv(self.msg_rx)->msg => {
+                    let data = DataPack::Pack(&(msg?))?;
+                    self.write_data(&data)?;
+                    println!(
+                        "WRITER {:?} write back  to {}",
+                        self.conn_id, self.socket_addr
+                    );
+                },
+                recv(self.close_rx)->_msg =>{
+                    println!("close ");
+                },
+
             }
-            // select!{
-            //     recv(self.msg_rx)-> msg => {
-            //         match msg{
-
-            //         }
-            //     },
-            //     recv(self.exit_buff_chan)->msg =>{
-            //         return 
-            //     },
-            // }
         }
     }
-
-    
 }
 
 impl ConnectionSync {
@@ -268,26 +263,15 @@ impl ConnectionSync {
     pub fn start(&self) {
         println!("{:?} start", self.conn_id);
 
-        scope(|scope| {
-            // Spawn a thread that receives a message and then sends one.
-            scope.spawn(|_| {
-                self.start_reader();
-            });
+        let mut conn_reader = self.try_clone().unwrap();
+        thread::spawn(move || {
+            conn_reader.start_reader();
+        });
 
-            scope.spawn(|_| {
-                self.start_writer();
-            });
-        
-        }).unwrap();
-
-        let r1 = self.receiver.clone();
-
-        select! {
-            recv(r1)->msg => {
-                println!("close {}",msg.unwrap());
-
-            } ,
-        }
+        let mut conn_writer = self.try_clone().unwrap();
+        thread::spawn(move || {
+            conn_writer.start_writer();
+        });
     }
 
     fn stop(&self) {
@@ -298,19 +282,19 @@ impl ConnectionSync {
 
         //TODO 如果用户注册了改链接的关闭回调业务，那么在此刻应该显示调用
         *close = true;
-        match self.conn.lock().unwrap().shutdown(Shutdown::Both) {
+        match self.conn.shutdown(Shutdown::Write) {
             Ok(_) => {}
             Err(err) => println!("{}", err),
         }
 
         // 通知从 tcp stream读数据的业务关闭
-        self.exit_buff_chan.send(true).unwrap();
+        self.close_sx.send(true).unwrap();
         println!("[STOP] {:?} {}", self.get_conn_id(), self.remote_addr());
     }
 
     //从当前连接获取原始的tcp stream
-    fn get_tcp_stream(&self) -> Arc<Mutex<TcpStream>> {
-        self.conn.clone()
+    fn get_tcp_stream(&self) -> &TcpStream {
+        &self.conn
     }
 
     // 获取当前连接ID

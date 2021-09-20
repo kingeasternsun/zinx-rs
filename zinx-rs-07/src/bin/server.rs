@@ -2,11 +2,10 @@
 use std::fs::File;
 use std::io::Read;
 
-
 use structopt_toml::StructOptToml;
 use zinx_rs::err::Result;
-use zinx_rs::util::Opt;
 use zinx_rs::util::MsgHandle;
+use zinx_rs::util::Opt;
 use zinx_rs::znet::router::*;
 use zinx_rs::znet::Server;
 use zinx_rs::Iserver;
