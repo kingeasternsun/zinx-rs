@@ -1,6 +1,6 @@
 #![allow(non_snake_case, dead_code)]
 use crossbeam::channel;
-use crossbeam::scope;
+// use crossbeam::scope;
 use crossbeam_channel::select;
 use std::io::{Cursor, Read, Write};
 
@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use std::thread;
 
 use crate::util::*;
-use crate::ziface::Iconnection;
+// use crate::ziface::Iconnection;
 use crate::znet::Request;
 
 pub struct ConnectionSync {
@@ -225,20 +225,6 @@ impl ConnectionSync {
 
     pub fn start_writer(&mut self) -> crate::Result<()> {
         loop {
-            // TODO select receiver
-             /* 
-            let msg = self.msg_rx.recv()?;
-
-            println!("rev {}", msg);
-            let data = DataPack::Pack(&msg)?;
-
-            self.write_data(&data)?;
-            println!(
-                "WRITER {:?} write back  to {}",
-                self.conn_id, self.socket_addr
-            );
-            */
-
             select! {
 
                 recv(self.msg_rx)->msg => {
@@ -250,7 +236,7 @@ impl ConnectionSync {
                     );
                 },
                 recv(self.close_rx)->_msg =>{
-                    println!("close ");
+                    println!("[CLOSE]writer by signal ");
                 },
 
             }
@@ -264,13 +250,15 @@ impl ConnectionSync {
         println!("{:?} start", self.conn_id);
 
         let mut conn_reader = self.try_clone().unwrap();
-        thread::spawn(move || {
-            conn_reader.start_reader();
+        thread::spawn(move || match conn_reader.start_reader() {
+            Ok(_) => {}
+            Err(err) => println!("{}", err),
         });
 
         let mut conn_writer = self.try_clone().unwrap();
-        thread::spawn(move || {
-            conn_writer.start_writer();
+        thread::spawn(move || match conn_writer.start_writer() {
+            Ok(_) => {}
+            Err(err) => println!("{}", err),
         });
     }
 

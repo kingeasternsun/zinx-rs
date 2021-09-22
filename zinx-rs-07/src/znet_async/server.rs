@@ -59,6 +59,7 @@ impl Server {
         loop {
             // block to wait the client to connect
             let (stream, socket_addr) = listener.accept().await?;
+            // let (mut rd, mut wr) = tokio::io::split(stream);
 
             let f = Arc::new(reverse_msg_handler);
             let conn = Arc::new(ConnectionSync::new(

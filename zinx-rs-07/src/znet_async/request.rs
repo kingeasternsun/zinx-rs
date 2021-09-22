@@ -5,14 +5,14 @@ use crate::znet_async::ConnectionSync;
 use std::sync::Arc;
 #[derive(Clone)]
 pub struct Request {
-    conn: Arc<ConnectionSync>, // 已经和客户端建立好的 连接
-    pub data: Message,         //客户端请求的数据
+    // conn: Arc<ConnectionSync>, // 已经和客户端建立好的 连接
+    pub data: Message, //客户端请求的数据
 }
 
 impl Request {
-    pub fn new(con: Arc<ConnectionSync>, data: Message) -> Self {
+    pub fn new(data: Message) -> Self {
         Request {
-            conn: Arc::clone(&con),
+            // conn: Arc::clone(&con),
             data,
         }
     }
