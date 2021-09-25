@@ -463,14 +463,14 @@ impl ConnectionReader {
                 }
             }
 
-            // select! {
-            //     recv(self.close_rx)->_msg =>{
-            //         println!("[CLOSE] by signal");
-            //     },
-            //     default()=>{
+            select! {
+                recv(self.close_rx)->_msg =>{
+                    println!("[CLOSE] by signal");
+                },
+                default()=>{
 
-            //     },
-            // }
+                },
+            }
         }
         Ok(())
     }
@@ -549,38 +549,31 @@ impl ConnectionWriter {
         }
     }
 
-    // 用于辅助 start_writer
-    async fn write_data(&mut self, buf: &[u8]) -> std::io::Result<()> {
-        // let mut s = self.conn.lock().await;
-        self.conn.write_all(buf).await
-    }
-
     pub async fn start_writer(&mut self) -> crate::Result<()> {
+        let mut res;
         loop {
-            // select! {
+            select! {
+                recv(self.msg_rx)->msg => {
+                    // println!("from chan{:?}",msg);
+                    let data = DataPack::Pack(&(msg?))?;
+                    res = Some(data)
+                },
+                recv(self.close_rx)->_msg =>{
+                    res = None
+                },
 
-            //     recv(self.msg_rx)->msg => {
-            //         let data = DataPack::Pack(&(msg?))?;
-            //         self.write_data(&data).await?;
-            //         println!(
-            //             "WRITER {:?} write back  to {}",
-            //             self.conn_id, self.socket_addr
-            //         );
-            //     },
-            //     recv(self.close_rx)->_msg =>{
-            //         // self.conn.shutdown().await?;
-            //         println!("[CLOSE]writer by signal ");
-            //     },
+            };
 
-            // }
-            if let Ok(msg) = self.msg_rx.recv() {
-                println!("reve from channel {}", msg);
-                let data = DataPack::Pack(&(msg))?;
-                self.write_data(&data).await?;
+            if let Some(b) = res {
+                self.conn.write_all(&b).await?;
                 println!(
                     "WRITER {:?} write back  to {}",
                     self.conn_id, self.socket_addr
                 );
+            } else {
+                self.conn.shutdown().await?;
+                println!("[CLOSE]writer by signal ");
+                return Ok(());
             }
         }
     }

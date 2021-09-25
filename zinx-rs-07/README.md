@@ -145,4 +145,88 @@ error: could not compile `zinx-rs`
 ```
 the trait `Sync` is not implemented for `dyn SelectHandle`
 ```
-所以暂时不使用select，可以正常编译通过了。
+
+所以 start_writer 暂时不使用select 如下，可以正常编译通过了。
+```rust
+    pub async fn start_writer(&mut self) -> crate::Result<()> {
+        loop {
+            if let Ok(msg) = self.msg_rx.recv() {
+                println!("reve from channel {}", msg);
+                let data = DataPack::Pack(&(msg))?;
+                self.write_data(&data).await?;
+                println!(
+                    "WRITER {:?} write back  to {}",
+                    self.conn_id, self.socket_addr
+                );
+            }
+        }
+    }
+```
+
+不过之前的另外一个错误
+```
+127 |         T: Future + Send + 'static,
+    |                     ---- required by this bound in `tokio::spawn`
+    |
+    = help: within `impl Future`, the trait `Send` is not implemented for `*const u8`
+note: future is not `Send` as this value is used across an await
+   --> src/znet_async/connection.rs:565:21
+```
+
+start_writer改为下面也可以编译通过
+```rust
+    pub async fn start_writer(&mut self) -> crate::Result<()> {
+        loop {
+            select! {
+
+                recv(self.msg_rx)->msg => {
+                    let data = DataPack::Pack(&(msg?))?;
+                    println!("from chan{:?}",data);
+                    // self.write_data(&data).await?;
+                    println!(
+                        "WRITER {:?} write back  to {}",
+                        self.conn_id, self.socket_addr
+                    );
+                },
+                recv(self.close_rx)->_msg =>{
+                    // self.conn.shutdown().await?;
+                    println!("[CLOSE]writer by signal ");
+                },
+
+            }
+
+        }
+    }
+```
+
+看来真正问题在于 select! 所包含的作用域中不能有async的操作，我们把async的操作从select！中移除来就可以了
+```rust
+    pub async fn start_writer(&mut self) -> crate::Result<()> {
+        let mut res;
+        loop {
+            select! {
+                recv(self.msg_rx)->msg => {
+                    // println!("from chan{:?}",msg);
+                    let data = DataPack::Pack(&(msg?))?;
+                    res = Some(data)
+                },
+                recv(self.close_rx)->_msg =>{
+                    res = None
+                },
+
+            };
+
+            if let Some(b) = res {
+                self.conn.write_all(&b).await?;
+                println!(
+                    "WRITER {:?} write back  to {}",
+                    self.conn_id, self.socket_addr
+                );
+            } else {
+                self.conn.shutdown().await?;
+                println!("[CLOSE]writer by signal ");
+                return Ok(());
+            }
+        }
+    }
+```
