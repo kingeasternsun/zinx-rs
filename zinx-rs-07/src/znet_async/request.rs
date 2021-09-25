@@ -1,8 +1,8 @@
 #![allow(dead_code, non_snake_case)]
 use crate::util::Message;
 use crate::ziface::IRquest;
-use crate::znet_async::ConnectionSync;
-use std::sync::Arc;
+// use crate::znet_async::ConnectionSync;
+// use std::sync::Arc;
 #[derive(Clone)]
 pub struct Request {
     // conn: Arc<ConnectionSync>, // 已经和客户端建立好的 连接

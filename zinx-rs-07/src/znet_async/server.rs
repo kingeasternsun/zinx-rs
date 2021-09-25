@@ -1,10 +1,13 @@
 #![allow(non_snake_case, dead_code)]
 
 // use bytes::BytesMut;
+use crate::util::ConnID;
 use crate::util::Message;
 use crate::util::MsgHandle;
-use crate::znet_async::connection::ConnectionSync;
+use crate::znet_async::connection::ConnectionReader;
+use crate::znet_async::connection::ConnectionWriter;
 use crate::znet_async::Request;
+use crossbeam::channel;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
@@ -59,17 +62,36 @@ impl Server {
         loop {
             // block to wait the client to connect
             let (stream, socket_addr) = listener.accept().await?;
-            // let (mut rd, mut wr) = tokio::io::split(stream);
 
-            let f = Arc::new(reverse_msg_handler);
-            let conn = Arc::new(ConnectionSync::new(
-                stream,
-                socket_addr,
-                conn_id,
-                f.clone(),
+            let (rd, wr) = stream.into_split();
+            let (close_sx, close_rx) = channel::bounded(1);
+            let (msg_sx, msg_rx) = channel::bounded(0);
+            let is_closed = Arc::new(Mutex::new(false));
+
+            //  创建 reader
+            let mut reader = ConnectionReader::new(
+                rd,
+                ConnID::new(conn_id),
+                is_closed.clone(),
+                close_rx.clone(),
+                msg_sx,
                 Arc::clone(&self.Router),
-            ));
-            tokio::spawn(async move { conn.start().await });
+            );
+            tokio::spawn(async move { reader.start_reader().await });
+
+            // 创建 writer
+            tokio::spawn(async move {
+                let mut writer = ConnectionWriter::new(
+                    wr,
+                    socket_addr,
+                    ConnID::new(conn_id),
+                    is_closed.clone(),
+                    close_sx,
+                    close_rx,
+                    msg_rx,
+                );
+                writer.start_writer().await
+            });
 
             conn_id += 1;
         }

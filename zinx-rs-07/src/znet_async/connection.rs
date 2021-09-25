@@ -1,8 +1,6 @@
 #![allow(non_snake_case, dead_code)]
 use crossbeam::channel;
 use crossbeam_channel::select;
-use tokio::io::AsyncReadExt;
-use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 // use std::net::Shutdown;
 use bytes::Buf;
@@ -11,7 +9,8 @@ use bytes::BytesMut;
 use std::io::Cursor;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 
@@ -445,7 +444,7 @@ impl ConnectionReader {
         }
     }
 
-    async fn start_read(&mut self) -> crate::Result<()> {
+    pub async fn start_reader(&mut self) -> crate::Result<()> {
         let mut buffer = BytesMut::with_capacity(1024);
         loop {
             match self.read_message(&mut buffer).await {
@@ -464,14 +463,14 @@ impl ConnectionReader {
                 }
             }
 
-            select! {
-                recv(self.close_rx)->_msg =>{
-                    println!("[CLOSE] by signal");
-                },
-                default()=>{
+            // select! {
+            //     recv(self.close_rx)->_msg =>{
+            //         println!("[CLOSE] by signal");
+            //     },
+            //     default()=>{
 
-                },
-            }
+            //     },
+            // }
         }
         Ok(())
     }
@@ -550,56 +549,64 @@ impl ConnectionWriter {
         }
     }
 
-    // 用于辅助 start_read
+    // 用于辅助 start_writer
     async fn write_data(&mut self, buf: &[u8]) -> std::io::Result<()> {
         // let mut s = self.conn.lock().await;
         self.conn.write_all(buf).await
     }
 
-    async fn start_writer(&mut self) -> crate::Result<()> {
+    pub async fn start_writer(&mut self) -> crate::Result<()> {
         loop {
-            select! {
+            // select! {
 
-                recv(self.msg_rx)->msg => {
-                    let data = DataPack::Pack(&(msg?))?;
-                    self.write_data(&data).await?;
-                    println!(
-                        "WRITER {:?} write back  to {}",
-                        self.conn_id, self.socket_addr
-                    );
-                },
-                recv(self.close_rx)->_msg =>{
-                    println!("[CLOSE]writer by signal ");
-                },
+            //     recv(self.msg_rx)->msg => {
+            //         let data = DataPack::Pack(&(msg?))?;
+            //         self.write_data(&data).await?;
+            //         println!(
+            //             "WRITER {:?} write back  to {}",
+            //             self.conn_id, self.socket_addr
+            //         );
+            //     },
+            //     recv(self.close_rx)->_msg =>{
+            //         // self.conn.shutdown().await?;
+            //         println!("[CLOSE]writer by signal ");
+            //     },
 
+            // }
+            if let Ok(msg) = self.msg_rx.recv() {
+                println!("reve from channel {}", msg);
+                let data = DataPack::Pack(&(msg))?;
+                self.write_data(&data).await?;
+                println!(
+                    "WRITER {:?} write back  to {}",
+                    self.conn_id, self.socket_addr
+                );
             }
         }
     }
 
-    async fn stop_conn(&mut self) {
-        // let mut s = self.conn.lock().await;
-        match self.conn.shutdown().await {
-            Ok(_) => {}
-            Err(err) => println!("{}", err),
-        };
-    }
-
-    // pub async fn stop(&mut self) {
-    //     let clo = self.is_closed.clone();
-    //     let mut close = clo.lock().await;
-    //     if close.eq(&true) {
-    //         return;
-    //     }
-
-    //     //TODO 如果用户注册了改链接的关闭回调业务，那么在此刻应该显示调用
-    //     *close = true;
-
-    //     self.stop_conn().await;
-
-    //     // 通知从 tcp stream读数据的业务关闭
-    //     self.close_sx.send(true).unwrap();
-    //     println!("[STOP] {:?} {}", self.get_conn_id(), self.remote_addr());
+    // async fn stop_conn(&mut self) {
+    //     // let mut s = self.conn.lock().await;
+    //     match self.conn.shutdown().await {
+    //         Ok(_) => {}
+    //         Err(err) => println!("{}", err),
+    //     };
     // }
+
+    pub async fn stop(&mut self) {
+        let clo = self.is_closed.clone();
+        let mut close = clo.lock().await;
+        if close.eq(&true) {
+            return;
+        }
+
+        //TODO 如果用户注册了改链接的关闭回调业务，那么在此刻应该显示调用
+        *close = true;
+
+        // 通知从 tcp stream读数据的业务关闭
+        self.close_sx.send(true).unwrap();
+        println!("[STOP] {:?} {}", self.get_conn_id(), self.remote_addr());
+    }
 
     // 获取当前连接ID
     pub fn get_conn_id(&self) -> ConnID {
