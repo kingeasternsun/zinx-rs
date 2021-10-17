@@ -1,13 +1,15 @@
-Zinx-V0.2-简单的连接封装与业务绑定 https://www.kancloud.cn/aceld/zinx/1960214
 
-# 同步实现
+参考 golang 版本 [Zinx-V0.2 简单的连接封装与业务绑定](https://www.kancloud.cn/aceld/zinx/1960214)
 
-在 connection 模块中，如果 handler_api 的类型 HandlerFn 的定义如下
+# 基于标准库的同步实现
+
+在 connection 模块中，如果 `handler_api` 的类型 `HandlerFn` 的定义如下
+
 ```rust
 type HandlerFn = Arc<dyn Fn(& mut TcpStream, &[u8], usize) -> std::io::Result<usize>>;
 ```
-上面定义中没有加 Send 和 Sync 的trait 限定，
-如果想要用下面的方式调用,也就是把Connection的创建放在spawn外面，如下：
+
+由于上面定义中没有加 Send 和 Sync 的trait 限定，那么如果想要把Connection的创建放在spawn外面，例如下面的写法：
 
 ```rust
                         let mut conn = Connection::new(
@@ -22,8 +24,10 @@ type HandlerFn = Arc<dyn Fn(& mut TcpStream, &[u8], usize) -> std::io::Result<us
                         });
 
 ```
-就会报下面的错误
-```
+
+就会报错误如下：
+
+```shell
 error[E0277]: `(dyn for<'r, 's> Fn(&'r mut std::net::TcpStream, &'s [u8], usize) -> std::result::Result<usize, std::io::Error> + 'static)` cannot be sent between threads safely
    --> src/znet/server.rs:75:25
     |
@@ -53,9 +57,9 @@ error[E0277]: `(dyn for<'r, 's> Fn(&'r mut std::net::TcpStream, &'s [u8], usize)
     = note: required because it appears within the type `[closure@src/znet/server.rs:75:39: 77:26]`
 ```
 
-因为 HandlerFn 没有 Send  和 Sync trait，所以 conn.handler_api 不能安全的在线程间移动，解决方法两种
+根据错误提示我们可以知道：因为 HandlerFn 没有 Send  和 Sync trait，所以 conn.handler_api 不能安全的在线程间移动，解决方法两种
 
-一种是在 server 模块中，只能这样来使用Connection
+- 第一种是在 server 模块中，在spawn中创建和使用Connection
 ```rust
                         thread::spawn(move || {
                             let mut conn = Connection::new(
@@ -68,22 +72,21 @@ error[E0277]: `(dyn for<'r, 's> Fn(&'r mut std::net::TcpStream, &'s [u8], usize)
                         });
 ```
 
-第二种也是推荐的做法，HandlerFn 加上 Send Sync trait
+- 第二种也是推荐的做法，HandlerFn 加上 Send Sync trait
 ```rust
 type HandlerFn = Arc<dyn Fn(&mut TcpStream, &[u8], usize) -> std::io::Result<usize> + Send + Sync>;
 ```
 ## spawn method
 
-如果要在method中spawn 其他的method，两种方案
+如果要在method中spawn 其它的method，两种方案
 1. 使用 crossbeam::scope ，参见Connection::start_scope()
 2. 当前对象要用Arc<Mutex> 封装，参见 https://users.rust-lang.org/t/how-to-use-self-while-spawning-a-thread-from-method/8282
 
-# 异步实现
-由于 tikio.net.TcpStream 执行写入也是 async，只能在async中调用，所以写入操作无法作为回调函数的一部分
+# 基于tokio的异步实现
 
-所以async实现中，回调函数只包含数据的逻辑处理，数据写回仍然在Connection中完成
+ tikio.net.TcpStream 的写入是 async，由于 async 只能在 async 中调用，所以tikio.net.TcpStream 的写入操作无法作为回调函数的一部分，也就是说回调函数中不能包含async方法。
 
-
+所以当前Connection实现中，回调函数中只包含数据的逻辑处理，数据写回仍然在Connection中完成。
 
 Connection 结构体定义中的 handler_api 必须要加 + Send + Sync 限定
 ```rust
