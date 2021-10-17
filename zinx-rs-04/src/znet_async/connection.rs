@@ -91,7 +91,7 @@ impl ConnectionSync {
                     );
 
                     let request =
-                        Request::new(Arc::clone(self), String::from_utf8(buf.to_vec()).unwrap());
+                        Request::new(Arc::clone(self), &buf[..n]);
 
                     self.Router.pre_handler(request.clone());
 

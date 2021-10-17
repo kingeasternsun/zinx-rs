@@ -8,11 +8,11 @@ pub struct PingRouter;
 impl IRouter for PingRouter {
     type R = Request;
     fn pre_handler(&self, request: Request) {
-        println!("pre {}", request.get_data());
+        println!("pre {:?}", request.get_data());
     }
     fn handler(&self, request: Request) {}
     fn post_hander(&self, request: Request) {
-        println!("post {}", request.get_data());
+        println!("post {:?}", request.get_data());
     }
 }
 

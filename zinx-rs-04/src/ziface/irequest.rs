@@ -17,5 +17,5 @@ pub trait IRquest {
     // 获取请求连接信息
     fn get_connection(&self) -> Arc<Self::Conn>;
     // 获取请求消息的数据
-    fn get_data(&self) -> String;
+    fn get_data(&self) -> &[u8];
 }

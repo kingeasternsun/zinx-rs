@@ -34,6 +34,7 @@ use tokio::fs::File;
 ```
 
 来读取配置文件的内容到buf中。
+使用 `structopt_toml::StructOptToml` 来解析toml文件。
 
 
 

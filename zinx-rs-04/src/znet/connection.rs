@@ -221,7 +221,7 @@ impl ConnectionSync {
                         String::from_utf8(buf.clone()).unwrap()
                     );
                     let request =
-                        Request::new(Arc::clone(self), String::from_utf8(buf.clone()).unwrap());
+                        Request::new(Arc::clone(self), &buf[0..n]);
 
                     self.Router.pre_handler(request.clone());
                     // match self.conn.write(&buf[..n]) {
